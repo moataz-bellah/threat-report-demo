@@ -1,0 +1,272 @@
+{
+  "schema_version": "1.0",
+  "report_id": "TI-2026-0920-DRILL-01",
+  "title": "Incident Drill Scenario - windows-system-health-check.ps1",
+  "generated": "2026-09-20",
+  "tlp": "TLP:AMBER",
+  "consumer": "DetectionHub",
+  "scope_note": "Static analysis of a purple-team adversary emulation script. Stops at hunting hypotheses and detection guidance; detection logic authoring is downstream.",
+  "platform": ["windows"],
+  "network_indicators_present": false,
+  "network_indicators_note": "The artifact performs no outbound communication, DNS resolution, or payload download. Absence of network IoCs is a defining property of this scenario, not a collection gap.",
+
+  "source_artifact": {
+    "filename": "windows-system-health-check.ps1",
+    "sha256": "45578de97d36e75d3ee1a6ae4eeb5d98ba1ee06862100496371adc23c0686f99",
+    "sha1": "0c2a20188f91bdaf1665b05d11f1c881ee3c57ec",
+    "md5": "cefa0f9d14358acbacab184a41bd0332",
+    "size_bytes": 7421,
+    "line_count": 153,
+    "encoding": "ASCII, CRLF",
+    "obfuscated": false,
+    "requires_elevation": true,
+    "attack": ["T1036.005"],
+    "masquerade_note": "Benign filename and a genuine read-only health-check preamble (lines 15-95) provide cover for the intrusion tail (lines 99-153)."
+  },
+
+  "attack_chain": [
+    {
+      "stage": 0,
+      "name": "Defense Evasion - Execution Policy Tampering",
+      "lines": "3-10",
+      "techniques": ["T1562.001", "T1112", "T1059.001"],
+      "summary": "Sets process-scope execution policy to Unrestricted, writes machine-wide GPO-backed ExecutionPolicy=Bypass to HKLM, forces policy refresh, then sleeps 10 seconds.",
+      "caveat": "Set-ItemProperty does not create a missing key. On hosts lacking HKLM:\\Software\\Policies\\Microsoft\\Windows\\PowerShell the write throws and no registry artifact is produced. Detection must cover the failed-attempt variant."
+    },
+    {
+      "stage": 1,
+      "name": "Discovery Sweep",
+      "lines": "15-95",
+      "techniques": ["T1087.001", "T1087.002", "T1069.001", "T1069.002", "T1482", "T1016", "T1049", "T1082", "T1007", "T1615", "T1201", "T1654"],
+      "summary": "Broad enumeration of accounts, groups, domain/forest, network configuration and connections, security policy, applied GPOs, scheduled tasks, services and event logs. Uses both legacy binaries and PowerShell cmdlets for overlapping objectives.",
+      "caveat": "net groups is domain-scoped and errors on standalone hosts; the process creation still occurs. Get-ADDomain/Get-ADForest are wrapped in try/catch and fail silently without the ActiveDirectory module, but still appear in script block logs."
+    },
+    {
+      "stage": 2,
+      "name": "Persistence and Privilege Escalation",
+      "lines": "99-145",
+      "techniques": ["T1053.005", "T1136.001", "T1098", "T1078.003", "T1036.004", "T1552.001"],
+      "summary": "Drops C:\\Scripts\\CreateUser.ps1 which idempotently creates local user 'test' and adds it to Administrators. Registers scheduled task 'Window Update Task' at root path, running as NT AUTHORITY\\SYSTEM at highest run level, repeating every 5 minutes for 3650 days.",
+      "caveat": "Self-healing. Deleting the account without removing the task results in recreation within 5 minutes. In steady state the payload is a no-op, so repeated 4720/4732 events do NOT occur; the durable signal is the recurring SYSTEM-context PowerShell process creation."
+    },
+    {
+      "stage": 3,
+      "name": "Anti-Forensics - Event Log Destruction",
+      "lines": "149-153",
+      "techniques": ["T1070.001"],
+      "summary": "Clears Security via wevtutil, then Application, Security and System via Clear-EventLog. Two mechanisms used against an overlapping target set; Security is cleared twice.",
+      "caveat": "Incomplete. Microsoft-Windows-PowerShell/Operational and Microsoft-Windows-TaskScheduler/Operational are NOT cleared and retain a full record. Clearing is self-documenting: Security EID 1102 and System EID 104 are written by the act itself."
+    }
+  ],
+
+  "indicators": [
+    {"id": "FS-001", "type": "directory", "value": "C:\\Scripts\\", "stage": 2, "attack": ["T1053.005"], "fidelity": "medium", "note": "Non-standard staging directory created by the script."},
+    {"id": "FS-002", "type": "file_path", "value": "C:\\Scripts\\CreateUser.ps1", "stage": 2, "attack": ["T1136.001"], "fidelity": "high", "note": "Second-stage payload containing a cleartext credential. No stable hash: Set-Content -Encoding UTF8 emits a BOM on PS 5.1 but not PS 7, and line endings vary. Anchor on path and content, never on hash."},
+    {"id": "FS-003", "type": "file_path", "value": "C:\\Scripts\\CreateUser.log", "stage": 2, "attack": ["T1136.001"], "fidelity": "high", "note": "Payload error log. Presence implies at least one failed execution."},
+    {"id": "FS-004", "type": "file_path", "value": "C:\\Temp\\LocalSecurityPolicy.inf", "stage": 1, "attack": ["T1201", "T1615"], "fidelity": "high", "note": "secedit export of password, lockout, audit policy and user rights assignments."},
+    {"id": "FS-005", "type": "file_path", "value": "C:\\Temp\\ComputerGPOReport.html", "stage": 1, "attack": ["T1615"], "fidelity": "high", "note": "Computer-scope applied GPO dump."},
+    {"id": "FS-006", "type": "file_path", "value": "C:\\Temp\\UserGPOReport.html", "stage": 1, "attack": ["T1615"], "fidelity": "high", "note": "User-scope applied GPO dump."},
+    {"id": "FS-007", "type": "file_path", "value": "C:\\Windows\\System32\\Tasks\\Window Update Task", "stage": 2, "attack": ["T1053.005"], "fidelity": "high", "note": "Task definition XML. Root task path is the structural anomaly."},
+    {"id": "FS-008", "type": "sha256", "value": "45578de97d36e75d3ee1a6ae4eeb5d98ba1ee06862100496371adc23c0686f99", "stage": null, "attack": [], "fidelity": "medium", "note": "Dropper hash. Trivially altered; use for retro-hunt pivot only."},
+
+    {"id": "REG-001", "type": "registry_value", "value": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy", "data": "Bypass", "stage": 0, "attack": ["T1562.001", "T1112"], "fidelity": "high", "note": "Machine-wide, GPO-backed policy override. Write fails if the parent key is absent; absence is inconclusive."},
+    {"id": "REG-002", "type": "registry_key", "value": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Schedule\\TaskCache\\Tree\\Window Update Task", "stage": 2, "attack": ["T1053.005"], "fidelity": "high", "note": "Task cache entry registered at root level."},
+    {"id": "REG-003", "type": "registry_key", "value": "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Schedule\\TaskCache\\Tasks\\{GUID}", "stage": 2, "attack": ["T1053.005"], "fidelity": "medium", "note": "GUID is per-host and cannot be expressed as a fixed value. Pivot from REG-002."},
+    {"id": "REG-004", "type": "registry_hive", "value": "HKLM\\SAM\\SAM\\Domains\\Account\\Users", "stage": 2, "attack": ["T1136.001"], "fidelity": "medium", "note": "Offline SAM artifact for the created account: RID and creation timestamp."},
+
+    {"id": "ACC-001", "type": "username", "value": "test", "stage": 2, "attack": ["T1136.001"], "fidelity": "low", "note": "Generic name, common in legitimate environments and other emulation tooling. Do not alert standalone; correlate with ACC-003 or ACC-004."},
+    {"id": "ACC-002", "type": "account_fullname", "value": "Test User", "stage": 2, "attack": ["T1136.001"], "fidelity": "medium", "note": "Set at account creation."},
+    {"id": "ACC-003", "type": "account_description", "value": "Created by scheduled task", "stage": 2, "attack": ["T1136.001"], "fidelity": "high", "note": "Distinctive literal string. Strong anchor and a good environment-wide retro-hunt term."},
+    {"id": "ACC-004", "type": "group_membership", "value": "test -> BUILTIN\\Administrators", "stage": 2, "attack": ["T1098", "T1078.003"], "fidelity": "high", "note": "Privileged backdoor."},
+    {"id": "ACC-005", "type": "credential", "value": "P@ssw0rd123!", "stage": 2, "attack": ["T1552.001"], "fidelity": "medium", "note": "Cleartext in payload. Hunt for reuse across the estate."},
+    {"id": "ACC-006", "type": "principal", "value": "NT AUTHORITY\\SYSTEM", "stage": 2, "attack": ["T1053.005"], "fidelity": "medium", "note": "Task run-as principal, combined with RunLevel Highest."},
+
+    {"id": "TSK-001", "type": "scheduled_task_name", "value": "Window Update Task", "stage": 2, "attack": ["T1036.004"], "fidelity": "high", "note": "Typosquat of Microsoft naming - 'Window' is singular. Highest-value string indicator in the artifact."},
+    {"id": "TSK-002", "type": "scheduled_task_path", "value": "\\Window Update Task", "stage": 2, "attack": ["T1053.005"], "fidelity": "high", "note": "Root path. Genuine Windows Update tasks reside under \\Microsoft\\Windows\\WindowsUpdate\\ and \\Microsoft\\Windows\\UpdateOrchestrator\\."},
+    {"id": "TSK-003", "type": "scheduled_task_action", "value": "PowerShell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:\\Scripts\\CreateUser.ps1\"", "stage": 2, "attack": ["T1053.005", "T1059.001"], "fidelity": "high", "note": "Script interpreter as task action with the classic evasion argument triple."},
+    {"id": "TSK-004", "type": "scheduled_task_trigger", "value": "RepetitionInterval=PT5M; RepetitionDuration=P3650D; Type=TimeTrigger/Once", "stage": 2, "attack": ["T1053.005"], "fidelity": "high", "note": "Short interval paired with multi-year duration. Legitimate tasks rarely combine both extremes."},
+
+    {"id": "CMD-001", "type": "command_line", "value": "gpupdate /force", "stage": 0, "attack": ["T1562.001"], "fidelity": "medium", "note": "Anomalous only when the parent is a script interpreter and it follows a Policies-key write."},
+    {"id": "CMD-002", "type": "command_line", "value": "net users", "stage": 1, "attack": ["T1087.001"], "fidelity": "low", "note": "Chaining signal only."},
+    {"id": "CMD-003", "type": "command_line", "value": "net groups", "stage": 1, "attack": ["T1069.001"], "fidelity": "low", "note": "Chaining signal only. Domain-scoped; errors on standalone hosts but the process creation still occurs."},
+    {"id": "CMD-004", "type": "command_line", "value": "ipconfig /all", "stage": 1, "attack": ["T1016"], "fidelity": "low", "note": "Chaining signal only."},
+    {"id": "CMD-005", "type": "command_line", "value": "netstat -ano", "stage": 1, "attack": ["T1049"], "fidelity": "low", "note": "Chaining signal only. PID flag maps connections to owning processes."},
+    {"id": "CMD-006", "type": "command_line", "value": "secedit /export /cfg C:\\Temp\\LocalSecurityPolicy.inf", "stage": 1, "attack": ["T1201", "T1615"], "fidelity": "high", "note": "secedit /export is rare outside dedicated audit tooling."},
+    {"id": "CMD-007", "type": "command_line", "value": "gpresult /scope Computer /h C:\\Temp\\ComputerGPOReport.html", "stage": 1, "attack": ["T1615"], "fidelity": "medium", "note": "Fidelity rises when output path is user-writable and non-standard."},
+    {"id": "CMD-008", "type": "command_line", "value": "gpresult /scope User /h C:\\Temp\\UserGPOReport.html", "stage": 1, "attack": ["T1615"], "fidelity": "medium", "note": "As CMD-007."},
+    {"id": "CMD-009", "type": "command_line", "value": "wevtutil cl Security", "stage": 3, "attack": ["T1070.001"], "fidelity": "high", "note": "Near-zero legitimate use in most environments."},
+    {"id": "CMD-010", "type": "process_pattern", "value": "PowerShell.exe spawned by svchost.exe (Schedule) as NT AUTHORITY\\SYSTEM at ~5 minute intervals", "stage": 2, "attack": ["T1053.005"], "fidelity": "high", "note": "Periodicity with low timing variance is the signal. Survives log clearing."},
+
+    {"id": "STR-001", "type": "script_block_string", "value": "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Unrestricted -Force", "stage": 0, "fidelity": "medium"},
+    {"id": "STR-002", "type": "script_block_string", "value": "HKLM:\\Software\\Policies\\Microsoft\\Windows\\PowerShell", "stage": 0, "fidelity": "high"},
+    {"id": "STR-003", "type": "script_block_string", "value": "Get-LocalGroupMember -Group \"Remote Desktop Users\"", "stage": 1, "fidelity": "medium"},
+    {"id": "STR-004", "type": "script_block_string", "value": "New-LocalUser -Name $userName -Password $SecureP", "stage": 2, "fidelity": "high"},
+    {"id": "STR-005", "type": "script_block_string", "value": "Add-LocalGroupMember -Group \"Administrators\"", "stage": 2, "fidelity": "high"},
+    {"id": "STR-006", "type": "script_block_string", "value": "ConvertTo-SecureString $passwordPlain -AsPlainText -Force", "stage": 2, "fidelity": "medium"},
+    {"id": "STR-007", "type": "script_block_string", "value": "Register-ScheduledTask", "stage": 2, "fidelity": "high"},
+    {"id": "STR-008", "type": "script_block_string", "value": "New-TimeSpan -Days (3650)", "stage": 2, "fidelity": "high"},
+    {"id": "STR-009", "type": "script_block_string", "value": "Clear-EventLog -LogName", "stage": 3, "fidelity": "high"},
+    {"id": "STR-010", "type": "script_block_string", "value": "Created by scheduled task", "stage": 2, "fidelity": "high"},
+    {"id": "STR-011", "type": "script_block_string", "value": "P@ssw0rd123!", "stage": 2, "fidelity": "medium"},
+    {"id": "STR-012", "type": "script_block_string", "value": "Window Update Task", "stage": 2, "fidelity": "high"}
+  ],
+
+  "attack_mapping": [
+    {"technique_id": "T1059.001", "name": "Command and Scripting Interpreter: PowerShell", "tactic": "execution"},
+    {"technique_id": "T1562.001", "name": "Impair Defenses: Disable or Modify Tools", "tactic": "defense-evasion"},
+    {"technique_id": "T1112", "name": "Modify Registry", "tactic": "defense-evasion"},
+    {"technique_id": "T1070.001", "name": "Indicator Removal: Clear Windows Event Logs", "tactic": "defense-evasion"},
+    {"technique_id": "T1036.004", "name": "Masquerading: Masquerade Task or Service", "tactic": "defense-evasion"},
+    {"technique_id": "T1036.005", "name": "Masquerading: Match Legitimate Name or Location", "tactic": "defense-evasion"},
+    {"technique_id": "T1087.001", "name": "Account Discovery: Local Account", "tactic": "discovery"},
+    {"technique_id": "T1087.002", "name": "Account Discovery: Domain Account", "tactic": "discovery"},
+    {"technique_id": "T1069.001", "name": "Permission Groups Discovery: Local Groups", "tactic": "discovery"},
+    {"technique_id": "T1069.002", "name": "Permission Groups Discovery: Domain Groups", "tactic": "discovery"},
+    {"technique_id": "T1482", "name": "Domain Trust Discovery", "tactic": "discovery"},
+    {"technique_id": "T1016", "name": "System Network Configuration Discovery", "tactic": "discovery"},
+    {"technique_id": "T1049", "name": "System Network Connections Discovery", "tactic": "discovery"},
+    {"technique_id": "T1082", "name": "System Information Discovery", "tactic": "discovery", "note": "Also used here for Get-ScheduledTask enumeration; ATT&CK defines no scheduled-task-discovery technique."},
+    {"technique_id": "T1007", "name": "System Service Discovery", "tactic": "discovery"},
+    {"technique_id": "T1615", "name": "Group Policy Discovery", "tactic": "discovery"},
+    {"technique_id": "T1201", "name": "Password Policy Discovery", "tactic": "discovery"},
+    {"technique_id": "T1654", "name": "Log Enumeration", "tactic": "discovery"},
+    {"technique_id": "T1053.005", "name": "Scheduled Task/Job: Scheduled Task", "tactic": "persistence"},
+    {"technique_id": "T1136.001", "name": "Create Account: Local Account", "tactic": "persistence"},
+    {"technique_id": "T1098", "name": "Account Manipulation", "tactic": "persistence"},
+    {"technique_id": "T1078.003", "name": "Valid Accounts: Local Accounts", "tactic": "privilege-escalation"},
+    {"technique_id": "T1552.001", "name": "Unsecured Credentials: Credentials In Files", "tactic": "credential-access"}
+  ],
+
+  "forensic_evidence_map": [
+    {"behavior": "PowerShell script execution", "source": "Microsoft-Windows-PowerShell/Operational", "event_ids": [4104, 4103], "cleared_by_script": false},
+    {"behavior": "PowerShell engine lifecycle", "source": "Windows PowerShell (classic)", "event_ids": [400, 403, 600], "cleared_by_script": false},
+    {"behavior": "Process creation", "source": "Security", "event_ids": [4688], "cleared_by_script": true},
+    {"behavior": "Process creation", "source": "Sysmon", "event_ids": [1], "cleared_by_script": false},
+    {"behavior": "Registry modification", "source": "Sysmon", "event_ids": [12, 13, 14], "cleared_by_script": false},
+    {"behavior": "File creation", "source": "Sysmon", "event_ids": [11], "cleared_by_script": false},
+    {"behavior": "File creation", "source": "NTFS $MFT / $UsnJrnl / $LogFile", "event_ids": [], "cleared_by_script": false},
+    {"behavior": "Local account created", "source": "Security", "event_ids": [4720], "cleared_by_script": true},
+    {"behavior": "Account enabled / password set / changed", "source": "Security", "event_ids": [4722, 4724, 4738], "cleared_by_script": true},
+    {"behavior": "Member added to local group", "source": "Security", "event_ids": [4732], "cleared_by_script": true},
+    {"behavior": "Scheduled task created / deleted / updated", "source": "Security", "event_ids": [4698, 4699, 4702], "cleared_by_script": true},
+    {"behavior": "Scheduled task registered", "source": "Microsoft-Windows-TaskScheduler/Operational", "event_ids": [106], "cleared_by_script": false},
+    {"behavior": "Task process launched / action start / complete", "source": "Microsoft-Windows-TaskScheduler/Operational", "event_ids": [129, 200, 201, 100, 102], "cleared_by_script": false},
+    {"behavior": "Security log cleared", "source": "Security", "event_ids": [1102], "cleared_by_script": false, "note": "Self-documenting - written into the freshly cleared log."},
+    {"behavior": "System or Application log cleared", "source": "System", "event_ids": [104], "cleared_by_script": false, "note": "Self-documenting."},
+    {"behavior": "Group policy refresh", "source": "System / GroupPolicy Operational", "event_ids": [1500, 1501, 4016, 5312], "cleared_by_script": true, "note": "Partially - GroupPolicy Operational channel is not cleared."},
+    {"behavior": "Program execution evidence", "source": "Prefetch / AmCache / ShimCache / SRUM", "event_ids": [], "cleared_by_script": false},
+    {"behavior": "Task definition on disk", "source": "C:\\Windows\\System32\\Tasks\\", "event_ids": [], "cleared_by_script": false},
+    {"behavior": "Account creation artifact", "source": "SAM registry hive", "event_ids": [], "cleared_by_script": false}
+  ],
+
+  "anti_forensics_assessment": {
+    "logs_cleared": ["Security", "System", "Application"],
+    "logs_untouched": [
+      "Microsoft-Windows-PowerShell/Operational",
+      "Microsoft-Windows-TaskScheduler/Operational",
+      "Windows PowerShell (classic)",
+      "Microsoft-Windows-Sysmon/Operational",
+      "Microsoft-Windows-GroupPolicy/Operational",
+      "Microsoft-Windows-WMI-Activity/Operational",
+      "Microsoft-Windows-Windows Defender/Operational"
+    ],
+    "detection_impact": "Rules depending solely on Security-channel event IDs (4688, 4720, 4732, 4698) will not fire in post-incident hunting after this pattern. Prefer surviving channels wherever the same behavior is observable in both.",
+    "primary_pivot": "Log discontinuity - hosts where PowerShell/Operational or TaskScheduler/Operational contain activity for a window in which the Security log holds no records.",
+    "secondary_pivot": "Event forwarding - a SIEM copy shipped before the clear is unaffected, and an on-host gap against a complete SIEM record is itself a detectable condition."
+  },
+
+  "hunting_hypotheses": [
+    {"id": "H-01", "title": "Machine-wide PowerShell execution policy override", "hypothesis": "If an adversary weakens script execution controls, then a write to HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy with value Bypass or Unrestricted will originate from an interactive or script process rather than from Group Policy application.", "data_sources": ["Sysmon 13/14", "PowerShell 4104"], "related_iocs": ["REG-001", "STR-001", "STR-002"], "priority": 4, "note": "Cover both successful writes and failed attempts where the parent key does not exist."},
+    {"id": "H-02", "title": "Anomalous policy refresh parentage", "hypothesis": "If an adversary forces immediate application of a tampered policy, then gpupdate.exe will appear with a script interpreter parent within a short window of a Policies-key write.", "data_sources": ["Sysmon 1", "Security 4688"], "related_iocs": ["CMD-001"], "priority": 4, "correlation_window_seconds": 60},
+    {"id": "H-03", "title": "Discovery burst from a single parent", "hypothesis": "If an adversary performs automated reconnaissance, then a single parent process will spawn an unusually high count of distinct discovery utilities within a short interval.", "data_sources": ["Sysmon 1", "Security 4688"], "related_iocs": ["CMD-002", "CMD-003", "CMD-004", "CMD-005", "CMD-006", "CMD-007", "CMD-008"], "priority": 7, "correlation_window_seconds": 300, "note": "Count distinct children from {net.exe, ipconfig.exe, netstat.exe, secedit.exe, gpresult.exe, whoami.exe} per parent ProcessGuid. Start the threshold at 4 or more distinct binaries and tune per environment."},
+    {"id": "H-04", "title": "Security policy and GPO export to non-standard paths", "hypothesis": "If an adversary maps defensive configuration, then secedit /export or gpresult /h will write output to a user-writable directory such as C:\\Temp, C:\\Users\\Public or %TEMP%.", "data_sources": ["Sysmon 1", "Sysmon 11", "Security 4688"], "related_iocs": ["CMD-006", "CMD-007", "CMD-008", "FS-004", "FS-005", "FS-006"], "priority": 6},
+    {"id": "H-05", "title": "Account creation immediately followed by privileged group addition", "hypothesis": "If an adversary provisions a backdoor, then a local account creation will be followed within seconds by that same account's addition to a privileged local group, in the same process context.", "data_sources": ["Security 4720", "Security 4732", "PowerShell 4104"], "related_iocs": ["ACC-001", "ACC-003", "ACC-004", "STR-004", "STR-005"], "priority": 3, "correlation_window_seconds": 60, "note": "Elevate severity when the acting context is SYSTEM."},
+    {"id": "H-06", "title": "Scheduled task executing a script interpreter as SYSTEM", "hypothesis": "If an adversary establishes privileged persistence, then a task will be registered whose principal is NT AUTHORITY\\SYSTEM at highest run level and whose action is a script interpreter with execution-policy bypass arguments.", "data_sources": ["Security 4698", "TaskScheduler 106", "PowerShell 4104"], "related_iocs": ["TSK-003", "ACC-006", "STR-007"], "priority": 2},
+    {"id": "H-07", "title": "Task name typosquatting of Microsoft components", "hypothesis": "If an adversary masquerades persistence, then the task name will closely resemble a Microsoft task name without matching one, and will be registered outside the \\Microsoft\\Windows\\ path.", "data_sources": ["Security 4698", "TaskScheduler 106", "C:\\Windows\\System32\\Tasks\\"], "related_iocs": ["TSK-001", "TSK-002", "STR-012"], "priority": 2, "note": "Evaluate by lexical distance against a known-good task inventory. Flag root-path tasks whose names contain Windows, Window, Update, Defender, Edge or Office."},
+    {"id": "H-08", "title": "High-frequency, long-duration task repetition", "hypothesis": "If an adversary wants resilient persistence, then the task trigger will combine a short repetition interval with a multi-year duration.", "data_sources": ["Security 4698 TaskContent XML", "C:\\Windows\\System32\\Tasks\\"], "related_iocs": ["TSK-004", "STR-008"], "priority": 2, "note": "Flag interval below ~15 minutes combined with duration beyond ~365 days."},
+    {"id": "H-09", "title": "Periodic SYSTEM-context interpreter execution", "hypothesis": "If self-healing persistence is active, then a script interpreter will execute under SYSTEM at a near-constant interval with low timing variance.", "data_sources": ["Sysmon 1", "TaskScheduler 129", "TaskScheduler 200"], "related_iocs": ["CMD-010"], "priority": 5, "note": "Compute inter-arrival times per image and command line; flag low standard deviation across many executions. Survives log clearing and detects established persistence long after intrusion."},
+    {"id": "H-10", "title": "Event log clearing", "hypothesis": "If an adversary destroys evidence, then Security 1102 or System 104 will be generated, and wevtutil cl or Clear-EventLog will appear in process or script telemetry.", "data_sources": ["Security 1102", "System 104", "Sysmon 1", "PowerShell 4104"], "related_iocs": ["CMD-009", "STR-009"], "priority": 1, "note": "Treat multiple logs cleared within one short window as strong indication."},
+    {"id": "H-11", "title": "Read-then-clear on an identical log set", "hypothesis": "If an adversary reviews logs before destroying them, then the same log names will appear in enumeration activity and in clearing activity within the same session.", "data_sources": ["PowerShell 4104", "Security 1102", "System 104"], "related_iocs": ["STR-009"], "priority": 5},
+    {"id": "H-12", "title": "Telemetry discontinuity across channels", "hypothesis": "If an adversary clears only a subset of logs, then surviving channels will contain activity for a window in which the cleared channels hold no records.", "data_sources": ["Security", "Microsoft-Windows-PowerShell/Operational", "Microsoft-Windows-TaskScheduler/Operational", "Sysmon"], "related_iocs": [], "priority": 1, "note": "Compare earliest Security record timestamp against activity timestamps in surviving channels for the same host."},
+    {"id": "H-13", "title": "Cleartext credentials in staged scripts", "hypothesis": "If an adversary hardcodes a credential, then a script file in a non-standard directory will contain a plaintext password adjacent to an account-creation cmdlet.", "data_sources": ["PowerShell 4104", "file content scanning"], "related_iocs": ["ACC-005", "FS-002", "STR-006", "STR-011"], "priority": 8},
+    {"id": "H-14", "title": "Environment-wide credential and naming reuse pivot", "hypothesis": "If this scenario reflects real operator tradecraft, then the same weak password or account naming convention may appear on other hosts.", "data_sources": ["estate-wide retro-hunt"], "related_iocs": ["ACC-003", "ACC-005", "TSK-001"], "priority": 8, "note": "Scoping hypothesis rather than a detection rule."}
+  ],
+
+  "detection_guidance": {
+    "field_reference": {
+      "sysmon_1_security_4688": ["Image", "OriginalFileName", "CommandLine", "ParentImage", "ParentCommandLine", "User", "IntegrityLevel", "ProcessGuid"],
+      "sysmon_11": ["TargetFilename", "Image"],
+      "sysmon_12_13_14": ["TargetObject", "Details", "EventType", "Image"],
+      "powershell_4104": ["ScriptBlockText", "Path", "ScriptBlockId", "MessageNumber", "MessageTotal"],
+      "powershell_4103": ["Payload", "ContextInfo"],
+      "security_4698_4699_4702": ["TaskName", "TaskContent", "SubjectUserName"],
+      "security_4720_4722_4724_4738": ["TargetUserName", "SubjectUserName", "SubjectLogonId", "UserAccountControl"],
+      "security_4732": ["TargetUserName", "MemberName", "MemberSid", "TargetSid"],
+      "security_1102": ["SubjectUserName", "SubjectDomainName", "SubjectLogonId"],
+      "system_104": ["Channel", "SubjectUserName", "BackupPath"],
+      "taskscheduler_operational": ["TaskName", "ActionName", "UserContext", "InstanceId", "ProcessID"]
+    },
+    "correlation_windows": {
+      "h01_to_h02_seconds": 60,
+      "h03_discovery_burst_seconds": 300,
+      "h05_account_chain_seconds": 60,
+      "full_chain_minutes": 30,
+      "note": "The script completes in under two minutes including the 10-second sleep. A 30-minute full-chain window accommodates a slower human operator."
+    },
+    "false_positives": [
+      {"indicator": "net users, net groups, ipconfig, netstat", "legitimate_sources": "Helpdesk scripts, logon scripts, inventory agents, monitoring", "handling": "Never alert standalone. Chaining signal only."},
+      {"indicator": "Get-LocalUser, Get-LocalGroupMember", "legitimate_sources": "Compliance scanners, SCCM/Intune, audit tooling", "handling": "Baseline scanner service accounts and exclude by parent process."},
+      {"indicator": "secedit /export", "legitimate_sources": "CIS benchmark tooling, STIG scanners, policy backup", "handling": "Allowlist known audit tooling by parent and output path. Alert on unexpected output directories."},
+      {"indicator": "gpresult /h", "legitimate_sources": "Helpdesk troubleshooting", "handling": "Alert on non-standard output paths only."},
+      {"indicator": "gpupdate /force", "legitimate_sources": "Normal administration, imaging", "handling": "Alert only on interpreter parentage plus a preceding registry write."},
+      {"indicator": "Scheduled task creation", "legitimate_sources": "Software installers, patch management, backup agents", "handling": "Filter on SYSTEM principal plus interpreter action plus non-standard script path."},
+      {"indicator": "Local account creation", "legitimate_sources": "Provisioning workflows, imaging", "handling": "Alert on the creation-plus-privileged-group chain, not creation alone."},
+      {"indicator": "wevtutil cl / Clear-EventLog", "legitimate_sources": "Rare. Disk remediation, imaging, some SIEM agents", "handling": "Alert on all instances; allowlist by specific known process and account."},
+      {"indicator": "Execution policy registry write", "legitimate_sources": "GPO application from a domain controller", "handling": "Distinguish by writing process: svchost.exe GPO application versus a script interpreter."}
+    ],
+    "rule_design_notes": [
+      "Do not anchor on the account name 'test' alone. Pair it with ACC-003, ACC-004 or the task relationship.",
+      "Do not anchor on a hash for CreateUser.ps1. Encoding and line endings vary by PowerShell version.",
+      "Prefer surviving channels. Where a behavior is observable in both Security and PowerShell/TaskScheduler Operational, prefer the latter.",
+      "Account for the failed-registry-write variant in H-01.",
+      "Handle 4104 fragmentation: long script blocks split across records with MessageNumber and MessageTotal. Key on short distinctive substrings, not long multi-line sequences.",
+      "net groups errors on standalone hosts; process-based detection is unaffected but output-based detection would see nothing.",
+      "Task path matters as much as task name. Root-path registration is the structural anomaly; the name is the lexical one. Use both."
+    ],
+    "logging_prerequisites": [
+      {"requirement": "PowerShell Script Block Logging (4104)", "enables": "The majority of surviving evidence", "priority": "highest"},
+      {"requirement": "PowerShell Module Logging (4103)", "enables": "Supporting pipeline detail", "priority": "medium"},
+      {"requirement": "Sysmon with registry, file-create and process coverage for C:\\Scripts\\, C:\\Temp\\ and the PowerShell Policies key", "enables": "H-01, H-04, H-13", "priority": "high"},
+      {"requirement": "Command-line auditing (4688 with process command line)", "enables": "H-02, H-03, H-04", "priority": "high"},
+      {"requirement": "Audit User Account Management", "enables": "4720, 4722, 4724, 4732", "priority": "high"},
+      {"requirement": "Audit Other Object Access Events", "enables": "4698, 4699, 4702", "priority": "high"},
+      {"requirement": "Microsoft-Windows-TaskScheduler/Operational enabled", "enables": "H-06, H-08, H-09, H-12", "priority": "high", "note": "Disabled by default on some builds."},
+      {"requirement": "Real-time event forwarding to SIEM", "enables": "Defeats the anti-forensic stage entirely", "priority": "highest"}
+    ],
+    "priority_order": ["H-10", "H-12", "H-06", "H-07", "H-08", "H-05", "H-01", "H-02", "H-09", "H-11", "H-04", "H-03", "H-13", "H-14"]
+  },
+
+  "containment_note": {
+    "remediation_order": "Remove the scheduled task BEFORE the 'test' account.",
+    "rationale": "The payload recreates the account within 5 minutes of deletion. Each recreation generates a fresh 4720/4732 pair, which responders may misread as a second intrusion.",
+    "full_remediation_scope": [
+      "Scheduled task 'Window Update Task' and its XML at C:\\Windows\\System32\\Tasks\\",
+      "Local account 'test' and its Administrators membership",
+      "C:\\Scripts\\ (CreateUser.ps1, CreateUser.log)",
+      "C:\\Temp\\LocalSecurityPolicy.inf, ComputerGPOReport.html, UserGPOReport.html",
+      "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ExecutionPolicy"
+    ],
+    "evidence_note": "Cleared logs cannot be recovered from the host. If event forwarding was configured, the SIEM copy is the only source of pre-clear evidence."
+  },
+
+  "limitations": [
+    "Static analysis only; the script was not detonated. Artifact paths and event IDs derive from source review and documented Windows behavior. Lab validation recommended before production deployment.",
+    "Execution context assumed elevated. Without administrator or SYSTEM rights several stages fail and the observable artifact set is substantially smaller.",
+    "REG-001 may not exist on hosts lacking the parent key. Absence is inconclusive, not exculpatory.",
+    "REG-003 task GUID is per-host and cannot be expressed as a fixed value.",
+    "Get-ScheduledTask mapping to T1082 is approximate; ATT&CK defines no scheduled-task-discovery technique.",
+    "No network indicators and no external payload hashes exist in this scenario.",
+    "Fidelity ratings assume a typical enterprise estate. Environments with heavy automation should re-baseline low and medium indicators.",
+    "Generic names (test, C:\\Scripts\\, C:\\Temp\\) are common in legitimate use and other emulation frameworks; detections keyed on them alone will generate noise and may collide with other purple-team tooling."
+  ]
+}
