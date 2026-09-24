@@ -1,0 +1,71 @@
+# XYZ-THREAT-INTEL-CORP
+
+**Cyber Threat Intelligence Division**
+
+---
+
+## Threat Intelligence Report
+
+### Fake "Exchange Server 2019 Security Update" Phishing Campaign
+
+| Field | Value |
+|---|---|
+| **Report ID** | XYZ-TI-2026-0923-114 |
+| **Classification** | TLP:AMBER |
+| **Date** | 2026-09-23 |
+| **Distribution** | Client SOC / Detection Engineering |
+
+---
+
+## 1. Executive Summary
+
+A phishing email disguised as an urgent Exchange Server 2019 security advisory delivers a PowerShell payload that, once run by the victim, executes a full intrusion chain: defense tampering, extensive host and domain reconnaissance, dual persistence, credential access, command-and-control beaconing, log clearing, and impact — consistent with a ransomware-precursor operation.
+
+## 2. Delivery
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1566.001 | Phishing: Spearphishing Attachment | Email themed as an Exchange 2019 patch advisory |
+| T1204.002 | User Execution: Malicious File | Victim runs the attached/linked script |
+
+## 3. Execution & Defense Evasion
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1059.001 | PowerShell | Entire payload is a PowerShell script |
+| T1070.001 | Indicator Removal: Clear Windows Event Logs | Security, System and Application logs cleared |
+
+## 4. Discovery
+
+Broad enumeration precedes action: local accounts and group membership, domain and forest identity, network configuration and active connections, running services, local security policy, and Group Policy results. Maps to T1087 (Account Discovery), T1069 (Permission Groups Discovery), T1016 (System Network Configuration Discovery), T1049 (System Network Connections Discovery), T1007 (System Service Discovery), T1615 (Group Policy Discovery).
+
+## 5. Persistence & Privilege Escalation
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1053.005 | Scheduled Task | A disguised task re-runs periodically as SYSTEM, indefinitely |
+| T1136.001 | Create Account: Local Account | That task creates a local account and adds it to Administrators |
+| T1078.003 | Valid Accounts: Local Accounts | The new account provides a standing, credentialed foothold |
+
+## 6. Credential Access
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1003.002 | OS Credential Dumping: Security Account Manager | SAM and SYSTEM registry hives saved to disk for offline extraction |
+| T1003 | OS Credential Dumping (NTLM/SSPI-based) | A credential-theft utility invoked to extract NTLM material without a direct LSASS memory read |
+
+## 7. Command and Control
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1571 | Non-Standard Port | Connectivity checks to an external IP on 21/22/80/443 |
+
+## 8. Impact
+
+| ID | Technique | Observed |
+|---|---|---|
+| T1490 | Inhibit System Recovery | Volume shadow copies deleted — removes local recovery options, consistent with ransomware staging |
+
+## 9. Indicators of Compromise
+
+- **C2 IP:** `1.24.16.23` (ports 21/22/80/443)
